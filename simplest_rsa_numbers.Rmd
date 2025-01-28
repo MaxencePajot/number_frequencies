@@ -1,0 +1,224 @@
+---
+title: RSA Applied to numbers + LoT
+author:
+  - Mathias Sablé Meyer
+  - [...]
+lang: en
+output: rmdformats::readthedown
+---
+
+```{r someTools, echo = FALSE}
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(tidyverse)
+pacman::p_load(cowplot)
+
+normCol = function(m) { # Normalises on columns.
+  t(t(m)/colSums(m))
+}
+
+normRow = function(m) { # Normalises on rows. This was benchmarked.
+  m/rowSums(m)
+}
+
+# Let's not print too many digits for the human eye
+options(digits=2)
+
+# see https://stat.ethz.ch/pipermail/r-help/2004-June/053343.html
+list <- structure(NA,class="result")
+"[<-.result" <- function(x,...,value) {
+   args <- as.list(match.call())
+   args <- args[-c(1:2,length(args))]
+   length(value) <- length(args)
+   for(i in seq(along=args)) {
+     a <- args[[i]]
+     if(!missing(a)) eval.parent(substitute(a <- v,list(a=a,v=value[[i]])))
+   }
+   x
+}
+
+theme_set(theme_cowplot() +
+          theme(text = element_text(family = "Calibri", size=9),
+                axis.text = element_text(size=9),
+                panel.grid.major.x = element_blank() ,
+                panel.grid.major.y = element_line( linewidth=.1, color="black")))
+```
+
+Grab the source of this file [here](./index.Rmd)
+
+## Many thanks to [Benjamin Spector](https://sites.google.com/site/bspectorpage/)
+
+His seminar on `RSA` introduced me to this and he provided real-time feedback
+on my atlambdats to implement it.
+
+# A wee bit of theory
+
+To do. Or better, refer to someone more competent (see previous title).
+
+Let:
+
+* $P : w \rightarrow [0,1]$ the prior distribution on possible worlds.
+* $c : u \rightarrow \mathbb{R}$ a cost function on utterances.
+* $Lex : (u,w) \rightarrow 1$ iff $u$ is true at $w$, $0$ otherwise
+* $\lambda \in \mathbb{R}^+$ a *free energy* lambdaerature parameter^[The higher
+  the lambda, the more rational the speaker/listener]
+
+We define by recursion over $n \in \mathbb{N}$ following triplet $S, L, U$^[Speaker, Listener, Utility]\ where $L_0$ is the naïve listener.
+
+$$
+\begin{eqnarray}
+  L_0&(w&\mid& u) &\propto& P(w)Lex(u,w) \\
+  U_{n+1}&(u&\mid& w) &=& \log(L_n(w\mid u)) - c(u) \\
+  S_{n+1}&(u&\mid& w) &\propto& e^{\lambda U_{n+1}(u\mid w)} \\
+  L_{n+1}&(w&\mid& u) &\propto& P(w)S_{n+1}(u\mid w)
+\end{eqnarray}
+$$
+
+# (An) Implementation of the RSA
+
+Remarks about the code:
+
+* A single recursive function handles both the speaker and the listener
+* The structure distinguish the naïve listener, hard coded, and furthers
+  listeners/speakers that are computed, hence the immediate `if`
+* There's an helper function to avoid passing the whole universe around. So the
+  main function gets them but the recursive calls only have the "level" so as
+  to avoid a huge call stack
+
+Apart from that, thanks to `R` [syntactic
+sugar](https://en.wikipedia.org/wiki/Syntactic_sugar), the implementation
+follows very closely the definitions.
+
+Implementation:
+
+```{r firstAtlambdatAtRSA}
+L <- function(priors, lex, cost, lambda,n) {
+
+  logic <- t(lex)
+  Ln <- normRow(logic * (1/sum(logic))) # Ln_iterationsal speaker with "flat" choice
+  for (i in 1:n) {
+    Sn <- normCol(exp(lambda * (log(Ln) - cost))) # Update Sn
+    Ln <- normRow(t(t(Sn) * priors))            # Update Ln
+  }
+
+  list(Ln, Sn) # Returns the (Listener, Speaker) pair
+}
+```
+
+# Let's generate the starting point
+
+Numbers 1 to 99, one can say a number $n$ for worlds that range from $n-2$ to
+$n+2$ (this will/should be updated!!):
+
+```{r generateNumberContext}
+l <- 99
+worldNames <- c(seq(1,l))
+lex <- matrix(0, l, l)
+for (x in 1:l) {
+  # Here we want a "real" distribution, I just go from n-2 to n+2 within bounds
+  for (y in (x-2):(x+2)) {
+    if ((y >= 1) & (y <= l)) {
+      lex[x, y] <- 3-abs(y-x)
+    }
+  }
+}
+lex <- normRow(lex)
+
+# Naive cost: 1 for decades, 5 for everything else
+cost       <- rep(5, l)
+for (x in 1:l) {
+  if ((x%%10) == 0) {
+    cost[x] <- 1
+  }
+}
+
+# Flat priors
+priors     <- rep((1/length(worldNames)), length(worldNames))
+lambda       <- 1
+n_iterations <- 10
+
+list[Ln, Sn] <- L(priors, lex, cost, lambda, n_iterations)
+```
+
+Key points:
+
+* Worlds and utterances are "just" numbers 1 to `r l`
+* $\lambda = `r lambda`$ (the rationality update parameter / temperature)
+* Flat priors on the worlds
+* Costs are "just" cheaper for decades.
+* Truth table, with an "approx." fashion (+-2 right now).
+
+## Visualisation of the current cost function
+
+THIS is where we plug in the LoT cost instead!
+
+```{r}
+data.frame(names=worldNames, cost=cost) %>%
+  ggplot(aes(x = names, y = cost)) +
+  geom_line()
+```
+
+# Starting overlap
+
+Before the iterated updated, there is the following overlap between words and utterances:
+
+```{r}
+data.frame(lex) %>%
+  rownames_to_column %>%
+  pivot_longer(cols=c(-rowname)) %>%
+  mutate(utterancev = as.numeric(str_sub(rowname, start = 1))) %>%
+  mutate(worldv = as.numeric(str_sub(name, start = 2))) %>%
+  mutate(utterance = paste0(str_pad(str_sub(rowname, start = 1), width=2, pad="0"), "_utterance")) %>%
+  mutate(world =  paste0(str_pad(str_sub(name, start = 2), width=2, pad="0"), "_world")) %>%
+  ggplot(aes(x = utterance, y = world, fill = value)) +
+  geom_tile() +
+  coord_fixed() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
+```
+
+# Resulting Speaker S${}_{`r n_iterations`}$
+
+Probability that the speaker, at iteration N°`r n_iterations`, choses to utter
+the utterance $u$ to talke about world $w$:
+
+```{r}
+data.frame(Sn) %>%
+  rownames_to_column %>%
+  pivot_longer(cols=c(-rowname)) %>%
+  mutate(utterancev = as.numeric(str_sub(rowname, start = 1))) %>%
+  mutate(worldv = as.numeric(str_sub(name, start = 2))) %>%
+  mutate(utterance = paste0(str_pad(str_sub(rowname, start = 1), width=2, pad="0"), "_utterance")) %>%
+  mutate(world =  paste0(str_pad(str_sub(name, start = 2), width=2, pad="0"), "_world")) %>%
+  ggplot(aes(x = utterance, y = world, fill = value)) +
+  geom_tile() +
+  coord_fixed() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
+```
+
+# Resulting Listener # L${}_{`r n_iterations`}$ 
+
+Probability that the listener, at iteration N°`r n_iterations` and having heard
+utterance $u$, understands that the intended meaning is $w$:
+
+```{r}
+data.frame(Ln) %>%
+  rownames_to_column %>%
+  pivot_longer(cols=c(-rowname)) %>%
+  mutate(utterancev = as.numeric(str_sub(rowname, start = 1))) %>%
+  mutate(worldv = as.numeric(str_sub(name, start = 2))) %>%
+  mutate(utterance = paste0(str_pad(str_sub(rowname, start = 1), width=2, pad="0"), "_utterance")) %>%
+  mutate(world =  paste0(str_pad(str_sub(name, start = 2), width=2, pad="0"), "_world")) %>%
+  ggplot(aes(x = utterance, y = world, fill = value)) +
+  geom_tile() +
+  coord_fixed() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
+```
+
+# Possibly useful: numeric tables rounded to 2
+
+## L${}_{`r n_iterations`}$
+
+`r knitr::kable(t(Ln))`
+
+## S${}_{`r n_iterations`}$
+
+`r knitr::kable(t(Sn))`
