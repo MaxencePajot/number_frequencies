@@ -14,6 +14,8 @@ or
 
 `pip install .`
 
+You also need R for the plots. The R version used 4.5.0
+
 # Use
 
 Since these are notebooks for visualisation, it is best to run all cells sequentially.
