@@ -17,4 +17,4 @@ You also need R for the plots. The R version used is 4.5.0
 Since these are notebooks for visualisation, it is best to run all cells sequentially.
 To run all notebooks, run the command line:
 
-'for f in *.ipynb; do uv run --with jupyter jupyter nbconvert --to notebook --inplace --execute "$f"; done'
+`for f in *.ipynb; do uv run --with jupyter jupyter nbconvert --to notebook --inplace --execute "$f"; done`
