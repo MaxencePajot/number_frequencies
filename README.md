@@ -10,12 +10,10 @@ The environment is a python 3.10 environment. The list of dependencies is listed
 
 `uv sync`
 
-or 
-
-`pip install .`
-
-You also need R for the plots. The R version used 4.5.0
+You also need R for the plots. The R version used is 4.5.0
 
 # Use
 
 Since these are notebooks for visualisation, it is best to run all cells sequentially.
+To run all notebooks, run the command line:
+for f in *.ipynb; do uv run --with jupyter jupyter nbconvert --to notebook --inplace --execute "$f"; done
